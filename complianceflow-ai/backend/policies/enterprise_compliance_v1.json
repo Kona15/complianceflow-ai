@@ -1,0 +1,66 @@
+{
+  "id": "enterprise_compliance_v1",
+  "name": "Enterprise Financial Compliance Policy",
+  "version": "1.0.0",
+  "description": "Standard compliance rules for invoices and contracts",
+  "rules": [
+    {
+      "id": "rule_amount_max",
+      "name": "Maximum Invoice Amount",
+      "type": "amount_threshold",
+      "field": "amounts",
+      "condition": "less_than_or_equal",
+      "threshold": 50000.0,
+      "severity": "critical",
+      "message": "Invoice amount exceeds $50,000 threshold. Requires VP approval."
+    },
+    {
+      "id": "rule_date_valid",
+      "name": "Valid Invoice Date",
+      "type": "date_validation",
+      "field": "dates",
+      "condition": "not_future",
+      "severity": "high",
+      "message": "Invoice date cannot be in the future."
+    },
+    {
+      "id": "rule_vendor_approved",
+      "name": "Approved Vendor List",
+      "type": "vendor_whitelist",
+      "field": "parties",
+      "allowed_vendors": [
+        "Acme Corp Inc.",
+        "Global Supplies LLC",
+        "TechForward Ltd.",
+        "Strategic Partners GmbH"
+      ],
+      "severity": "high",
+      "message": "Vendor not found in approved vendor list."
+    },
+    {
+      "id": "rule_clause_warranty",
+      "name": "Warranty Clause Required",
+      "type": "required_clause",
+      "field": "clauses",
+      "required_clauses": [
+        "warranty",
+        "liability"
+      ],
+      "severity": "medium",
+      "message": "Contract must include warranty and liability clauses."
+    },
+    {
+      "id": "rule_po_match",
+      "name": "Purchase Order Match",
+      "type": "reference_match",
+      "field": "po_number",
+      "severity": "medium",
+      "message": "Invoice must reference a valid Purchase Order number."
+    }
+  ],
+  "metadata": {
+    "created_by": "compliance_team",
+    "effective_date": "2026-01-01",
+    "review_cycle": "quarterly"
+  }
+}
