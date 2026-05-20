@@ -1,27 +1,20 @@
 {
   "id": "enterprise_compliance_v1",
   "name": "Enterprise Financial Compliance Policy",
-  "version": "1.0.0",
-  "description": "Standard compliance rules for invoices and contracts",
+  "version": "1.2.0",
+  "description": "Context-aware rules for invoices and contracts",
   "rules": [
     {
       "id": "rule_amount_max",
       "name": "Maximum Invoice Amount",
       "type": "amount_threshold",
       "field": "amounts",
-      "condition": "less_than_or_equal",
-      "threshold": 50000.0,
-      "severity": "critical",
-      "message": "Invoice amount exceeds $50,000 threshold. Requires VP approval."
-    },
-    {
-      "id": "rule_date_valid",
-      "name": "Valid Invoice Date",
-      "type": "date_validation",
-      "field": "dates",
-      "condition": "not_future",
+      "threshold": 100000.0,
       "severity": "high",
-      "message": "Invoice date cannot be in the future."
+      "message": "Invoice amount exceeds $100,000 threshold. Requires VP approval.",
+      "applies_to": [
+        "invoice"
+      ]
     },
     {
       "id": "rule_vendor_approved",
@@ -32,10 +25,38 @@
         "Acme Corp Inc.",
         "Global Supplies LLC",
         "TechForward Ltd.",
-        "Strategic Partners GmbH"
+        "Strategic Partners GmbH",
+        "GlobalCorp",
+        "GlobalCorp Enterprises"
       ],
       "severity": "high",
-      "message": "Vendor not found in approved vendor list."
+      "message": "Vendor not found in approved vendor list.",
+      "applies_to": [
+        "invoice"
+      ]
+    },
+    {
+      "id": "rule_po_match",
+      "name": "Purchase Order Match",
+      "type": "reference_match",
+      "field": "po_number",
+      "severity": "medium",
+      "message": "Invoice must reference a valid Purchase Order number.",
+      "applies_to": [
+        "invoice"
+      ]
+    },
+    {
+      "id": "rule_date_valid",
+      "name": "Valid Invoice Date",
+      "type": "date_validation",
+      "field": "dates",
+      "severity": "medium",
+      "message": "Invoice date cannot be in the future.",
+      "applies_to": [
+        "invoice",
+        "contract"
+      ]
     },
     {
       "id": "rule_clause_warranty",
@@ -47,20 +68,14 @@
         "liability"
       ],
       "severity": "medium",
-      "message": "Contract must include warranty and liability clauses."
-    },
-    {
-      "id": "rule_po_match",
-      "name": "Purchase Order Match",
-      "type": "reference_match",
-      "field": "po_number",
-      "severity": "medium",
-      "message": "Invoice must reference a valid Purchase Order number."
+      "message": "Contract must include warranty and liability clauses.",
+      "applies_to": [
+        "contract"
+      ]
     }
   ],
   "metadata": {
     "created_by": "compliance_team",
-    "effective_date": "2026-01-01",
-    "review_cycle": "quarterly"
+    "effective_date": "2026-01-01"
   }
 }
