@@ -14,7 +14,7 @@ logger = structlog.get_logger()
 class DocumentProcessor:
     """
     Extracts structured data from PDFs and images.
-    Improved for better accuracy on invoices.
+    Significantly improved for contracts & agreements (better raw_text + date extraction).
     """
 
     def __init__(self):
@@ -37,7 +37,6 @@ class DocumentProcessor:
 
     async def process(self, file_bytes: bytes, filename: str) -> Dict[str, Any]:
         """Main entry point for document processing."""
-
         mime = self._detect_mime_type(filename)
 
         logger.info("document_processing_started", filename=filename, mime=mime)
@@ -55,29 +54,52 @@ class DocumentProcessor:
             filename=filename,
             document_type=extracted["document_type"],
             amounts_found=len(extracted["amounts"]),
-            parties_found=len(extracted["parties"])
+            parties_found=len(extracted["parties"]),
+            dates_found=len(extracted["dates"])
         )
 
         return {
             "filename": filename,
             "mime_type": mime,
-            "raw_text": raw_text[:12000],
+            "raw_text": raw_text[:15000],   # Increased limit
             "extracted_fields": extracted,
             "processed_at": datetime.utcnow().isoformat()
         }
 
     async def _process_pdf(self, file_bytes: bytes) -> str:
-        """Extract text from PDF using pdfplumber."""
+        """Improved PDF text extraction with better layout handling"""
         text_parts = []
+        full_text = ""
 
         with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
             for i, page in enumerate(pdf.pages):
-                # Try both extract_text and extract_text with better settings
-                page_text = page.extract_text(x_tolerance=3, y_tolerance=3)
-                if page_text:
-                    text_parts.append(f"--- Page {i + 1} ---\n{page_text}")
+                # Primary extraction with layout awareness
+                page_text = page.extract_text(
+                    x_tolerance=2,
+                    y_tolerance=2,
+                    layout=True
+                )
+                
+                if page_text and len(page_text.strip()) > 20:
+                    text_parts.append(f"--- Page {i+1} ---\n{page_text}")
+                    full_text += page_text + "\n\n"
+                else:
+                    # Fallback: extract words
+                    words = page.extract_words()
+                    page_text = " ".join([w["text"] for w in words])
+                    text_parts.append(f"--- Page {i+1} (words fallback) ---\n{page_text}")
+                    full_text += page_text + "\n\n"
 
-        return "\n\n".join(text_parts)
+        raw_text = "\n\n".join(text_parts)
+
+        logger.info(
+            "pdf_extraction_complete",
+            pages=len(pdf.pages),
+            text_length=len(raw_text),
+            preview=raw_text[:600] + "..." if raw_text else "No text extracted"
+        )
+
+        return raw_text
 
     async def _process_image(self, file_bytes: bytes) -> str:
         """Extract text from image using OCR."""
@@ -95,6 +117,7 @@ class DocumentProcessor:
             "clauses": self._extract_clauses(text),
             "invoice_number": self._extract_invoice_number(text),
             "po_number": self._extract_po_number(text),
+            "raw_text_preview": text[:1000]  # Helpful for debugging
         }
         return fields
 
@@ -102,9 +125,9 @@ class DocumentProcessor:
         text_lower = text.lower()
         filename_lower = filename.lower()
 
-        if "invoice" in text_lower or "inv-" in filename_lower or "invoice" in filename_lower:
+        if "invoice" in text_lower or "inv-" in filename_lower:
             return "invoice"
-        elif "contract" in text_lower or "agreement" in text_lower:
+        elif "agreement" in text_lower or "contract" in text_lower or "service" in text_lower:
             return "contract"
         elif "certificate" in text_lower or "compliance" in text_lower:
             return "compliance_certificate"
@@ -116,12 +139,10 @@ class DocumentProcessor:
     # ==================== IMPROVED EXTRACTION ====================
 
     def _extract_amounts(self, text: str) -> List[Dict]:
-        """Strongly improved amount extraction."""
         patterns = [
-            r'\$\s*([\d,]+\.?\d*)',                    # $42,000
-            r'(?:Total Due|Total|Amount|Sum)[\s:]*\$?\s*([\d,]+\.?\d*)',
-            r'([\d,]+\.\d{2})',                        # 42500.00
-            r'([\d,]+\d)\s*(?:USD|dollars?)',
+            r'\$\s*([\d,]+\.?\d*)',
+            r'(?:Total|Amount|Value|Contract Value)[\s:]*\$?\s*([\d,]+\.?\d*)',
+            r'([\d,]+\.\d{2})',
         ]
 
         amounts = []
@@ -145,36 +166,40 @@ class DocumentProcessor:
                     except ValueError:
                         continue
 
-        logger.info("amounts_extracted", count=len(amounts), raw_amounts=[a["value"] for a in amounts])
         return amounts[:8]
 
     def _extract_dates(self, text: str) -> List[str]:
+        """Much stronger date extraction"""
         patterns = [
             r'\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b',
             r'\b(\d{4}[/-]\d{1,2}[/-]\d{1,2})\b',
-            r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}\b',
+            r'\b(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}\b',
+            r'(?:Effective Date|Date of Agreement|Agreement Date|Date)[:\s]*([A-Za-z0-9,\s]+)',
         ]
         dates = []
         for pattern in patterns:
             matches = re.findall(pattern, text, re.IGNORECASE)
-            dates.extend(matches)
-        return list(set(dates))[:10]
+            for m in matches:
+                if isinstance(m, tuple) and m:
+                    m = m[0]
+                if m and len(str(m).strip()) > 4:
+                    dates.append(str(m).strip())
+        return list(set(dates))[:12]
 
     def _extract_parties(self, text: str) -> List[str]:
-        """Improved party extraction."""
+        """Improved for contracts"""
         patterns = [
-            r'(?:Bill To|To|Vendor|Supplier|Client)[:\s]+([A-Za-z0-9\s&.,]+?)(?=\n|$)',
-            r'([A-Z][A-Za-z0-9\s&.,]+(?:Plc|Inc|LLC|Ltd|Corp|Enterprises))',
+            r'(?:Service Provider|Client|Vendor|Supplier|Party|Bill To)[:\s]+([A-Za-z0-9\s&.,()]+?)(?=\n|$)',
+            r'([A-Z][A-Za-z0-9\s&.,]+(?:Ltd|Plc|Inc|LLC|Corp|Enterprises|Nigeria))',
         ]
         parties = []
         for pattern in patterns:
             matches = re.findall(pattern, text)
-            parties.extend([m.strip() for m in matches if len(m.strip()) > 3])
-        return list(set(parties))[:6]
+            parties.extend([m.strip() for m in matches if len(m.strip()) > 5])
+        return list(set(parties))[:8]
 
     def _extract_clauses(self, text: str) -> List[Dict]:
-        """Only extract if it's likely a contract."""
-        clause_keywords = ["warranty", "liability", "indemnification", "termination"]
+        clause_keywords = ["warranty", "liability", "indemnification", "termination", "governing law", "iso 27001"]
         clauses = []
         text_lower = text.lower()
 

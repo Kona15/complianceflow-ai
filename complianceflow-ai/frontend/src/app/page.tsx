@@ -102,16 +102,40 @@ export default function DashboardPage() {
     loadEvents();
   }, [selectedJob]);
 
-  const handleUploadComplete = useCallback((jobId: string) => {
-    setActiveJobId(jobId);
-    setShowUpload(false);
-    loadData();
+  const handleUploadComplete = useCallback(async (jobId: string) => {
+  setActiveJobId(jobId);
+  setShowUpload(false);
+
+  try {
+    const [statsData, jobsData] = await Promise.all([
+      getDashboardStats(),
+      listJobs(undefined, 20, 0),
+    ]);
+
+    setStats(statsData);
+    setJobs(jobsData.jobs);
+
+    // AUTO-SELECT NEWLY UPLOADED JOB
+    const newJob = jobsData.jobs.find((job) => job.id === jobId);
+
+    if (newJob) {
+      setSelectedJob(newJob);
+    }
+
     toast({
       title: "Processing Started",
       description: `Job ${jobId.slice(0, 8)} is being analyzed by the Agent Swarm`,
       variant: "success",
     });
-  }, []);
+
+  } catch (error: any) {
+    toast({
+      title: "Upload Error",
+      description: error.message,
+      variant: "destructive",
+    });
+  }
+}, []);
 
   const handleJobSelect = (job: ComplianceJob) => {
     setSelectedJob(job);

@@ -280,7 +280,7 @@ export function JobDetailPanel({ job }: JobDetailPanelProps) {
   );
 }
 
-/* ====================== NEW: EXECUTIVE SUMMARY ====================== */
+/* ====================== EXECUTIVE SUMMARY ====================== */
 function ExecutiveSummary({ 
   job, 
   discrepancies 
@@ -288,26 +288,7 @@ function ExecutiveSummary({
   job: ComplianceJob; 
   discrepancies: Discrepancy[] 
 }) {
-  const total = discrepancies.length;
-  const critical = discrepancies.filter(d => d.severity === "critical").length;
-  const high = discrepancies.filter(d => d.severity === "high").length;
-
-  let summary = "";
-  let riskColor = "text-slate-400";
-
-  if (total === 0) {
-    summary = "The document fully complies with all enterprise policy rules. No issues were detected by the agent swarm.";
-    riskColor = "text-emerald-400";
-  } else if (critical > 0) {
-    summary = `Critical compliance violations detected. Immediate attention required — particularly around ${discrepancies[0]?.rule_name.toLowerCase() || "key areas"}. This document carries high regulatory and financial risk.`;
-    riskColor = "text-red-400";
-  } else if (high > 0) {
-    summary = `Multiple high-severity issues identified. The agent swarm recommends urgent review before approval. Overall risk level is elevated.`;
-    riskColor = "text-orange-400";
-  } else {
-    summary = `Moderate compliance issues found. The document can likely proceed with the minor corrections suggested by the Auditor agent.`;
-    riskColor = "text-amber-400";
-  }
+  const backendSummary = job.audit_result?.executive_summary;
 
   return (
     <motion.div
@@ -325,18 +306,27 @@ function ExecutiveSummary({
         </div>
       </div>
       
-      <p className={`leading-relaxed text-[15px] ${riskColor}`}>
-        {summary}
-      </p>
+      {backendSummary ? (
+        <div 
+          className="leading-relaxed text-[15px] text-slate-200 whitespace-pre-wrap"
+          style={{ fontFamily: "inherit" }}
+        >
+          {backendSummary}
+        </div>
+      ) : (
+        <p className="text-amber-400">
+          Moderate compliance issues found. The document can likely proceed with the minor corrections suggested by the Auditor agent.
+        </p>
+      )}
 
-      {total > 0 && (
+      {discrepancies.length > 0 && (
         <div className="mt-4 flex gap-3 text-xs">
           <div className="bg-slate-800 rounded-lg px-3 py-1">
-            Total Issues: <span className="font-semibold">{total}</span>
+            Total Issues: <span className="font-semibold">{discrepancies.length}</span>
           </div>
-          {critical > 0 && (
+          {discrepancies.filter(d => d.severity?.toLowerCase() === "critical").length > 0 && (
             <div className="bg-red-950 text-red-400 rounded-lg px-3 py-1">
-              Critical: {critical}
+              Critical: {discrepancies.filter(d => d.severity?.toLowerCase() === "critical").length}
             </div>
           )}
         </div>
