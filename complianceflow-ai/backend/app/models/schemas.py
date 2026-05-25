@@ -66,6 +66,7 @@ class AuditResult(BaseModel):
 class EmailDraft(BaseModel):
     subject: str
     html_body: str
+    text_body: Optional[str] = None
     recipient: str
     sender: str
     status: Literal["drafted", "pending_approval", "approved", "sent", "failed"]

@@ -42,9 +42,13 @@ export interface ComplianceJob {
   email_draft?: {
     subject: string;
     html_body: string;
+    text_body?: string;
     recipient: string;
+    sender: string;
     status: string;
     requires_approval: boolean;
+    approved_by?: string;
+    approved_at?: string;
   };
   dashboard_status?: {
     case_id: string;

@@ -1,4 +1,5 @@
 import json
+import html
 import re
 from datetime import datetime
 from typing import Dict, List, Any, Optional
@@ -11,6 +12,7 @@ logger = structlog.get_logger()
 class PolicyEngine:
     """
     FINAL HACKATHON-READY POLICY ENGINE WITH FULLY IMPLEMENTED VALIDATION RULES
+    AND CLIENT-SIDE REMEDIATION DRAFTING FOR THE NEGOTIATOR AGENT
     """
 
     def __init__(self, policies_dir: str = "policies"):
@@ -146,6 +148,7 @@ class PolicyEngine:
             discrepancies = [
                 {
                     "rule_id": "rule_signature_validation",
+                    "name": "Executed Agreement Validation",
                     "rule_name": "Executed Agreement Validation",
                     "severity": "critical",
                     "message": "Unsigned contract detected. Legal enforceability is compromised.",
@@ -155,6 +158,7 @@ class PolicyEngine:
                 },
                 {
                     "rule_id": "rule_effective_date",
+                    "name": "Retroactive Effective Date Check",
                     "rule_name": "Retroactive Effective Date Check",
                     "severity": "high",
                     "message": "Significant retroactive effective date detected.",
@@ -165,6 +169,12 @@ class PolicyEngine:
             ]
 
         compliance_result = self.calculate_compliance_result(discrepancies)
+        
+        # Determine current target document name for email formatting context
+        file_name = extracted_fields.get("file_name", "DOCUMENT.pdf")
+
+        # Generate live dynamic email body via the Negotiator sub-agent module
+        email_draft = self.generate_remediation_email(file_name, discrepancies, compliance_result["status"])
 
         return {
             "status": compliance_result["status"],
@@ -172,7 +182,8 @@ class PolicyEngine:
             "confidence_score": compliance_result["confidence_score"],
             "compliance_score": compliance_result["compliance_score"],
             "risk_score": compliance_result["risk_score"],
-            "discrepancies": discrepancies
+            "discrepancies": discrepancies,
+            "email_draft": email_draft  # Sent down standard web socket payload pipelines
         }
 
     def calculate_compliance_result(self, discrepancies: List[Dict]) -> Dict:
@@ -237,13 +248,11 @@ class PolicyEngine:
         if isinstance(value, (int, float)):
             return float(value)
         if isinstance(value, dict):
-            # Check common keys like 'total', 'amount', or 'value' inside nested extractions
             for key in ["total", "amount", "total_amount", "value"]:
                 if key in value:
                     return self._parse_numeric_amount(value[key])
             return 0.0
         
-        # Clean up string values (strip $, commas, text)
         cleaned = re.sub(r'[^\d\.]', '', str(value))
         try:
             return float(cleaned) if cleaned else 0.0
@@ -258,7 +267,6 @@ class PolicyEngine:
             return date_val
             
         date_str = str(date_val).strip()
-        # Clean common ordinals like 1st, 2nd, 3rd, 4th
         date_str = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', date_str, flags=re.IGNORECASE)
         
         formats = [
@@ -272,10 +280,7 @@ class PolicyEngine:
                 continue
         return None
 
-    # --- IMPLEMENTED CORE COMPLIANCE LOGIC (OPTION B) ---
-
     def _check_amount_threshold(self, rule: Dict, amounts: Any) -> Dict:
-        """Validates that financial values do not cross hard baseline policies."""
         limit = rule.get("threshold", 100000.0)
         actual_amt = self._parse_numeric_amount(amounts)
         
@@ -290,10 +295,7 @@ class PolicyEngine:
         return {"compliant": True}
 
     def _check_vendor_whitelist(self, rule: Dict, parties: Any) -> Dict:
-        """Ensures the vendor trading entity is officially verified on the organization's whitelist."""
         allowed = rule.get("allowed_vendors", [])
-        
-        # Pull text from typical party models (handles strings, lists, or dictionary entities)
         vendor_candidates = []
         if isinstance(parties, str):
             vendor_candidates.append(parties)
@@ -307,8 +309,6 @@ class PolicyEngine:
             vendor_candidates.extend([str(v) for v in parties.values()])
 
         doc_text = " ".join(vendor_candidates).lower()
-        
-        # Look for a match between the whitelist and the text
         matched_vendor = None
         for vendor in allowed:
             if vendor.lower() in doc_text:
@@ -326,9 +326,7 @@ class PolicyEngine:
         return {"compliant": True}
 
     def _check_reference_match(self, rule: Dict, po_number: Optional[str]) -> Dict:
-        """Validates that a valid Purchase Order (PO) number is present."""
         po_str = str(po_number).strip() if po_number is not None else ""
-        
         if not po_str or po_str.lower() in ["none", "n/a", "null", "missing", "false"]:
             return {
                 "compliant": False,
@@ -346,12 +344,9 @@ class PolicyEngine:
                 "suggested_fix": "Check document scanning boundaries to verify the string wasn't truncated.",
                 "evidence": f"Value length: {len(po_str)}"
             }
-
         return {"compliant": True}
 
     def _check_date_validation(self, rule: Dict, dates: Any) -> Dict:
-        """Validates formal parsing and expiration tracking windows."""
-        # Baseline check to confirm a date exists
         if not dates:
             return {
                 "compliant": False,
@@ -363,7 +358,6 @@ class PolicyEngine:
         return {"compliant": True}
 
     def _check_required_clause(self, rule: Dict, clauses: Any) -> Dict:
-        """Scans for essential structural compliance legal terms."""
         target = str(rule.get("target_clause", "")).lower()
         if not target:
             return {"compliant": True}
@@ -380,12 +374,9 @@ class PolicyEngine:
         return {"compliant": True}
 
     def _check_signature_validation(self, fields: Dict[str, Any]) -> Dict:
-        """Validates signature sections to catch risky unsigned agreements."""
-        # Check standard boolean flags or structural arrays extracted by the parsing agents
         sig_data = fields.get("signatures", {})
         is_signed = fields.get("is_signed")
         
-        # Handle string assertions
         if str(is_signed).lower() in ["false", "no"]:
             return {
                 "compliant": False,
@@ -395,7 +386,6 @@ class PolicyEngine:
                 "evidence": f"Signing data trace: {sig_data}"
             }
             
-        # Scan internal dictionary if present
         if isinstance(sig_data, dict) and sig_data.get("missing_signatures", 0) > 0:
             return {
                 "compliant": False,
@@ -407,7 +397,6 @@ class PolicyEngine:
         return {"compliant": True}
 
     def _check_effective_date(self, fields: Dict[str, Any]) -> Dict:
-        """Intercepts retroactively dated contracts to catch critical backend liability gaps."""
         extracted_dates = fields.get("dates", {})
         if not isinstance(extracted_dates, dict):
             return {"compliant": True}
@@ -421,7 +410,6 @@ class PolicyEngine:
             
             if eff_dt and sign_dt:
                 gap_days = (sign_dt - eff_dt).days
-                # Trigger a warning flag if the retroactive period is over 30 days
                 if gap_days > 30:
                     return {
                         "compliant": False,
@@ -431,8 +419,6 @@ class PolicyEngine:
                         "evidence": f"Calculated backdated delta: {gap_days} days out of tolerance"
                     }
         return {"compliant": True}
-
-    # --- END VALIDATION IMPLEMENTATION ---
 
     def generate_executive_summary(self, evaluation_output: Dict, *args, **kwargs) -> str:
         discrepancies = evaluation_output.get("discrepancies", [])
@@ -444,7 +430,7 @@ class PolicyEngine:
             return (
                 "✅ **FULLY COMPLIANT**\n\n"
                 "The document meets all enterprise compliance requirements with no violations detected.\n\n"
-                "f\"Confidence: {confidence_score:.1f}% | Overall Score: {compliance_score:.1f}/100\"\n\n"
+                f"Confidence: {confidence_score:.1f}% | Overall Score: {compliance_score:.1f}/100\n\n"
                 "Recommendation: Proceed with standard approval and processing."
             )
 
@@ -479,6 +465,74 @@ class PolicyEngine:
 
         return summary.strip()
 
+    def generate_remediation_email(self, file_name: str, discrepancies: List[Dict], status: str) -> Dict[str, Any]:
+        """
+        Negotiator Agent Utility: Synthesizes structured remediation email drafts
+        based on active discrepancies found by the Auditor agent.
+        """
+        subject = f"ACTION REQUIRED: Compliance Remediation Needed for {file_name}"
+        if not discrepancies or status == "FULLY COMPLIANT":
+            subject = "Compliance Verification Approved - Everything Clear"
+            text_body = (
+                f"Dear Partner,\n\n"
+                f"Our automated verification systems have fully reviewed '{file_name}'. "
+                "No processing flags or internal rule discrepancies were triggered.\n\n"
+                "No action is required on your end. Thank you for your cooperation.\n\n"
+                "Best regards,\nCompliance Flow AI Desk"
+            )
+            html_body = (
+                "<html><body>"
+                "<pre style='font-family:Segoe UI,Arial,sans-serif;white-space:pre-wrap;color:#0f172a;'>"
+                f"{html.escape(text_body)}"
+                "</pre></body></html>"
+            )
 
-# Singleton
+            return {
+                "subject": subject,
+                "html_body": html_body,
+                "text_body": text_body,
+                "recipient": "vendor@unknown.com",
+                "sender": "compliance@complianceflow.ai",
+                "status": "drafted",
+                "requires_approval": False,
+            }
+
+        remediation_bullets = ""
+        for idx, d in enumerate(discrepancies, 1):
+            remediation_bullets += f"{idx}. [{d.get('severity', 'MEDIUM').upper()}] {d.get('rule_name')}\n"
+            remediation_bullets += f"   • Finding: {d.get('message')}\n"
+            remediation_bullets += f"   • Required Action: {d.get('suggested_fix')}\n\n"
+
+        text_body = (
+            f"Dear Team / Valued Partner,\n\n"
+            f"During processing of '{file_name}', the ComplianceFlow AI Agentic Orchestrator "
+            f"detected specialized validation gaps that require immediate correction.\n\n"
+            f"Status Level: {status}\n\n"
+            f"Please review the core discrepancy summary processed below:\n\n"
+            f"{remediation_bullets}"
+            f"To clear these transaction bars, please adjust the document fields or append the missing reference "
+            f"data and upload the revised documentation back through your operations dashboard portal.\n\n"
+            f"Best regards,\n"
+            f"Negotiator Agent — ComplianceFlow AI Swarm"
+        )
+
+        html_body = (
+            "<html><body>"
+            "<pre style='font-family:Segoe UI,Arial,sans-serif;white-space:pre-wrap;color:#0f172a;'>"
+            f"{html.escape(text_body)}"
+            "</pre></body></html>"
+        )
+
+        return {
+            "subject": subject,
+            "html_body": html_body,
+            "text_body": text_body,
+            "recipient": "vendor@unknown.com",
+            "sender": "compliance@complianceflow.ai",
+            "status": "drafted",
+            "requires_approval": True,
+        }
+
+
+# Singleton instance initialization
 policy_engine = PolicyEngine()

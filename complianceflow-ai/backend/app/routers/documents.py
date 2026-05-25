@@ -181,6 +181,10 @@ async def process_document_with_swarm(
         compliance_status = eval_output.get("status", "COMPLIANT")
         compliance_score = eval_output.get("compliance_score", 100.0)
         raw_discrepancies = eval_output.get("discrepancies", [])
+        email_draft = eval_output.get("email_draft")
+
+        if compliance_status == "FULLY COMPLIANT":
+            email_draft = None
 
         # Improved Enrichment
         discrepancies = []
@@ -305,6 +309,7 @@ async def process_document_with_swarm(
             job_id=job_id,
             status=job_completion_status,
             audit_result=audit_result,
+            email_draft=email_draft,
             dashboard_status={
                 "risk_level": risk_level_flag.lower(),
                 "completed_at": datetime.utcnow().isoformat(),

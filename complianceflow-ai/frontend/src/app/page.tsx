@@ -62,6 +62,12 @@ export default function DashboardPage() {
       ]);
       setStats(statsData);
       setJobs(jobsData.jobs);
+
+      // If a job is currently selected, refresh it from the latest jobs list
+      if (selectedJob) {
+        const refreshed = jobsData.jobs.find((j) => j.id === selectedJob.id);
+        if (refreshed) setSelectedJob(refreshed);
+      }
     } catch (error: any) {
       toast({
         title: "Error loading data",
